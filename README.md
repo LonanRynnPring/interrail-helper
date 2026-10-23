@@ -12,3 +12,13 @@ A small, no-install website for planning an Interrail trip.
 Your plan is kept in your browser automatically. Use **Export** to download a `.json` save file, and **Import** to load it again (on any device or browser).
 
 Everything runs locally in the page – nothing is sent to a server.
+
+## Train suggestions
+
+Built for flexible planning: a journey only needs a *from* and *to*. **Suggest trains** (in any journey, or **Find trains** on a planner leg) shows the day's options – times, duration, changes, and a rough guide to whether Interrail needs a seat reservation. If your date is too far ahead for timetables to be published (or you haven't picked one), it shows a **typical day** on the same weekday instead, so you can still see how long a leg takes and how often trains run.
+
+Train data comes from [Transitous](https://transitous.org), a free community-run European journey planner (requests are only made when you click). Places are looked up with [OpenStreetMap Nominatim](https://nominatim.org).
+
+## Licence
+
+MIT

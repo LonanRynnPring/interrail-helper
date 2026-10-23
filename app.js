@@ -18,6 +18,8 @@
       passType: '', travelDaysAllowed: '', passCost: '', notes: '',
     },
     plan: { startDate: '', stops: [] },
+    legInfo: {},   // "from|to" -> { fastest, direct, count, checked } from train searches
+    geocache: {},  // place name -> { lat, lon }
     journeys: [],
     stays: [],
     packing: [],
@@ -85,6 +87,8 @@
       journeys: Array.isArray(data.journeys) ? data.journeys.map((j) => ({ id: uid(), ...j })) : [],
       stays: Array.isArray(data.stays) ? data.stays.map((s) => ({ id: uid(), ...s })) : [],
       packing: Array.isArray(data.packing) ? data.packing.map((p) => ({ id: uid(), done: false, ...p })) : [],
+      legInfo: data.legInfo && typeof data.legInfo === 'object' ? data.legInfo : {},
+      geocache: data.geocache && typeof data.geocache === 'object' ? data.geocache : {},
     };
   }
 
@@ -275,6 +279,7 @@
           resPill(j),
           num(j.resCost) ? `<span class="pill">${esc(money(num(j.resCost)))}</span>` : '',
           j.seat ? `<span class="pill">💺 ${esc(j.seat)}</span>` : '',
+          !j.dep && !j.train ? '<span class="pill">Train not chosen yet</span>' : '',
         ].join('');
         html += `<button type="button" class="ticket" data-journey="${esc(j.id)}">
           <div class="ticket-route">
@@ -359,11 +364,12 @@
 
     $('#stopList').innerHTML = stops.map((s, i) => {
       const leg = sched && sched.legs[i];
+      const legRow = i > 0 ? renderLegRow(stops[i - 1], s, leg ? leg.arrive : '') : '';
       const where = s.geo === 'missing' ? '<span class="sub warn">Location not found – not shown on map</span>'
         : s.geo === 'error' ? '<span class="sub warn">Couldn’t look up location</span>'
         : s.lat == null ? '<span class="sub">Finding on map…</span>' : '';
       const dates = leg ? `<span class="sub">${esc(fmtDate(leg.arrive))} → ${esc(fmtDate(leg.depart))}</span>` : '';
-      return `<li style="--h:${hue(i)}">
+      return `${legRow}<li style="--h:${hue(i)}">
         <span class="stop-num">${i + 1}</span>
         <div class="stop-name"><div class="city">${esc(stopLabel(s))}</div>${dates}${dates && where ? '<br>' : ''}${where}</div>
         <input type="number" min="1" value="${esc(s.days)}" data-stop-days="${esc(s.id)}" aria-label="Days in ${esc(s.city)}" title="Days (nights)">
@@ -474,27 +480,49 @@
     else if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40] });
   }
 
-  // Geocoding via OpenStreetMap Nominatim (max 1 request/second)
+  // Geocoding via OpenStreetMap Nominatim (queued: max 1 request/second)
   let geoQueue = Promise.resolve();
-  const pendingGeo = new Set();
-  function geocode(stopId) {
-    if (pendingGeo.has(stopId)) return;
-    pendingGeo.add(stopId);
-    geoQueue = geoQueue.then(async () => {
-      const s = state.plan.stops.find((x) => x.id === stopId);
-      if (!s) { pendingGeo.delete(stopId); return; }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function lookupPlace(q, settlement) {
+    const task = geoQueue.then(async () => {
       try {
-        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&featureType=settlement&q=' + encodeURIComponent(stopLabel(s));
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1'
+          + (settlement ? '&featureType=settlement' : '') + '&q=' + encodeURIComponent(q);
         const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
         const data = await res.json();
-        if (data[0]) { s.lat = +data[0].lat; s.lon = +data[0].lon; s.geo = 'ok'; } else s.geo = 'missing';
-      } catch {
-        s.geo = 'error';
+        return data[0] ? { lat: +data[0].lat, lon: +data[0].lon } : null;
+      } finally {
+        await sleep(1100);
       }
-      pendingGeo.delete(stopId);
-      save();
-      await new Promise((r) => setTimeout(r, 1100));
     });
+    geoQueue = task.catch(() => {});
+    return task;
+  }
+
+  const pendingGeo = new Set();
+  async function geocode(stopId) {
+    const s = state.plan.stops.find((x) => x.id === stopId);
+    if (!s || pendingGeo.has(stopId)) return;
+    pendingGeo.add(stopId);
+    try {
+      const r = await lookupPlace(stopLabel(s), true);
+      if (r) { s.lat = r.lat; s.lon = r.lon; s.geo = 'ok'; } else s.geo = 'missing';
+    } catch {
+      s.geo = 'error';
+    }
+    pendingGeo.delete(stopId);
+    save();
+  }
+
+  // Coordinates for any place name: planner stops first, then cache, then Nominatim.
+  async function coordsFor(name) {
+    const k = name.trim().toLowerCase();
+    const stop = state.plan.stops.find((s) => s.city.trim().toLowerCase() === k && s.lat != null);
+    if (stop) return { lat: stop.lat, lon: stop.lon };
+    if (state.geocache[k]) return state.geocache[k];
+    const r = await lookupPlace(name, false);
+    if (r) state.geocache[k] = r;
+    return r;
   }
   function geocodeMissing() {
     state.plan.stops.filter((s) => s.lat == null && s.geo !== 'missing').forEach((s) => geocode(s.id));
@@ -585,14 +613,15 @@
   });
 
   // ---------- generic dialog editing ----------
-  function setupEditor({ dialog, form, title, deleteBtn, collection, label, defaults }) {
+  function setupEditor({ dialog, form, title, deleteBtn, collection, label, defaults, onOpen }) {
     let editingId = null;
     const dlg = $(dialog);
     const frm = $(form);
 
-    function open(id) {
+    function open(id, prefill) {
       editingId = id || null;
-      const item = id ? state[collection].find((x) => x.id === id) : defaults();
+      const item = id ? state[collection].find((x) => x.id === id) : { ...defaults(), ...prefill };
+      if (onOpen) onOpen();
       frm.reset();
       Array.from(frm.elements).forEach((el) => {
         if (!el.name) return;
@@ -636,6 +665,7 @@
   const openJourney = setupEditor({
     dialog: '#journeyDialog', form: '#journeyForm', title: '#journeyDialogTitle',
     deleteBtn: '#deleteJourneyBtn', collection: 'journeys', label: 'journey',
+    onOpen: () => { suggestToken++; $('#suggestResults').innerHTML = ''; },
     defaults: () => {
       const last = sortedJourneys().at(-1);
       return { from: last ? last.to : '', date: last ? last.date : state.trip.startDate, passDay: true, resStatus: 'none' };
@@ -660,6 +690,157 @@
   $('#stayList').addEventListener('click', (e) => {
     const t = e.target.closest('[data-stay]');
     if (t) openStay(t.dataset.stay);
+  });
+
+  // ---------- train suggestions ----------
+  let suggestToken = 0;
+  let lastSuggest = null;
+  const legKey = (from, to) => `${from.trim().toLowerCase()}|${to.trim().toLowerCase()}`;
+  const fmtMins = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  const RES_PILL = {
+    required: '<span class="pill warn">Reservation required</span>',
+    optional: '<span class="pill">Reservation optional</span>',
+    none: '<span class="pill ok">No reservation needed</span>',
+  };
+
+  function findJourney(from, to, date) {
+    const k = legKey(from, to);
+    return state.journeys.find((j) => legKey(j.from || '', j.to || '') === k && (!date || !j.date || j.date === date));
+  }
+
+  function renderLegRow(a, b, date) {
+    const j = findJourney(a.city, b.city, date);
+    const info = state.legInfo[legKey(a.city, b.city)];
+    let txt = `🚆 <strong>${esc(a.city)} → ${esc(b.city)}</strong>`;
+    if (j && j.dep) txt += ` · <span class="ok">✓ ${esc(j.train || 'Train')} ${esc(j.dep)}–${esc(j.arr || '?')}</span>`;
+    else if (info && info.count) txt += ` · ≈ ${fmtMins(info.fastest)} · ${info.direct ? 'direct trains' : 'with changes'}`;
+    else if (info) txt += ' · no trains found';
+    return `<li class="leg-row"><span class="leg-info">${txt}</span>
+      <button type="button" class="icon-btn" data-leg-from="${esc(a.city)}" data-leg-to="${esc(b.city)}" data-leg-date="${esc(date)}">${j && j.dep ? 'Edit' : 'Find trains'}</button></li>`;
+  }
+
+  function openLeg(from, to, date) {
+    const j = findJourney(from, to, date);
+    if (j) openJourney(j.id);
+    else openJourney(null, { from, to, date, passDay: true, resStatus: 'none' });
+    if (!j || !j.dep) runSuggest();
+  }
+
+  async function runSuggest() {
+    const f = $('#journeyForm').elements;
+    const from = f.from.value.trim(), to = f.to.value.trim(), date = f.date.value;
+    const box = $('#suggestResults');
+    if (!from || !to) { box.innerHTML = '<p class="suggest-note">Fill in “From” and “To” first.</p>'; return; }
+    const token = ++suggestToken;
+    box.innerHTML = '<p class="suggest-head"><span class="spinner"></span>Looking up trains…</p>';
+    try {
+      const a = await coordsFor(from);
+      const b = await coordsFor(to);
+      if (token !== suggestToken) return;
+      const missing = !a ? from : !b ? to : null;
+      if (missing) {
+        box.innerHTML = `<p class="suggest-head">Couldn’t find “${esc(missing)}” on the map – try a fuller name, e.g. “Vienna, Austria”.</p>`;
+        return;
+      }
+      const r = await TrainSuggest.search(a, b, date);
+      if (token !== suggestToken) return;
+      const sum = TrainSuggest.summary(r.options);
+      state.legInfo[legKey(from, to)] = { ...(sum || { count: 0 }), checked: r.searchedDate };
+      save();
+      lastSuggest = { ...r, date };
+      renderSuggestions();
+    } catch {
+      if (token === suggestToken) box.innerHTML = '<p class="suggest-head">Couldn’t reach the train timetable service – try again in a moment.</p>';
+    }
+  }
+
+  function renderSuggestions() {
+    const { options, searchedDate, typical, date } = lastSuggest;
+    const weekday = fmtDate(searchedDate, { weekday: 'long' });
+    let head;
+    if (!typical) head = `<p class="suggest-head">Trains on <strong>${esc(fmtDate(searchedDate))}</strong></p>`;
+    else if (date) head = `<p class="suggest-head typical">Timetables for ${esc(fmtDate(date))} aren’t published yet, so here’s a typical ${esc(weekday)} (${esc(fmtDate(searchedDate))}). Great for planning – just recheck nearer the time.</p>`;
+    else head = `<p class="suggest-head typical">No date set – showing a typical day (${esc(fmtDate(searchedDate))}) so you can see what’s available.</p>`;
+
+    if (!options.length) {
+      $('#suggestResults').innerHTML = head + '<p class="suggest-note">No train connections found. Try a nearby bigger city, or check the Interrail Rail Planner app.</p>';
+      return;
+    }
+    const sum = TrainSuggest.summary(options);
+    const rows = options.map((o, i) => {
+      const off = TrainSuggest.dayOffset(o);
+      const via = o.changes ? ` · change at ${o.trains.slice(0, -1).map((t) => esc(t.to)).join(', ')}` : '';
+      return `<div class="option ${o.mins === sum.fastest ? 'fastest' : ''}">
+        <div>
+          <div class="times">${TrainSuggest.fmtTime(o.dep, o.depTz)} → ${TrainSuggest.fmtTime(o.arr, o.arrTz)}${off > 0 ? `<sup>+${off}</sup>` : ''}
+            <span class="dur">${fmtMins(o.mins)} · ${o.changes ? `${o.changes} change${o.changes > 1 ? 's' : ''}` : 'direct'}</span></div>
+          <div class="via">${o.trains.map((t) => esc(t.name)).join(' → ')} · ${esc(o.fromStation)} → ${esc(o.toStation)}${via}</div>
+          <div class="pills">${RES_PILL[o.res]}${o.notCovered ? '<span class="pill bad">Part not covered by Interrail</span>' : ''}${o.mins === sum.fastest ? '<span class="pill accent">Fastest</span>' : ''}</div>
+        </div>
+        <button type="button" class="btn" data-use="${i}">Use</button>
+      </div>`;
+    }).join('');
+    $('#suggestResults').innerHTML = head
+      + `<div class="suggest-summary">${sum.count} option${sum.count > 1 ? 's' : ''} · fastest ${fmtMins(sum.fastest)} · ${sum.direct ? 'direct trains available' : 'changes needed'}</div>`
+      + `<div class="options">${rows}</div>`
+      + '<p class="suggest-note">Reservation hints are a rough guide – double-check in the Interrail Rail Planner app before you travel.</p>';
+  }
+
+  function useSuggestion(i) {
+    const o = lastSuggest.options[i];
+    const f = $('#journeyForm').elements;
+    f.dep.value = TrainSuggest.fmtTime(o.dep, o.depTz);
+    f.arr.value = TrainSuggest.fmtTime(o.arr, o.arrTz);
+    f.train.value = o.trains.map((t) => t.name).join(' + ');
+    f.operator.value = [...new Set(o.trains.map((t) => t.operator).filter(Boolean))].join(', ');
+    if (f.resStatus.value !== 'booked') f.resStatus.value = o.res === 'required' ? 'todo' : o.res;
+    // Replace any earlier auto-filled route lines (prefixed 🚆) but keep the user's own notes.
+    const own = f.notes.value.split('\n').filter((l) => l.trim() && !l.startsWith('🚆'));
+    const route = o.trains.map((t) => `🚆 ${t.name}: ${t.from} ${TrainSuggest.fmtTime(t.dep, t.depTz)} → ${t.to} ${TrainSuggest.fmtTime(t.arr, t.arrTz)}`);
+    if (lastSuggest.typical) route.push('🚆 (times from a typical day – recheck nearer the time)');
+    f.notes.value = [...route, ...own].join('\n');
+    document.querySelectorAll('#suggestResults .option').forEach((el, k) => el.classList.toggle('fastest', k === i));
+    toast('Filled in – press Save to keep it');
+  }
+
+  $('#suggestBtn').addEventListener('click', runSuggest);
+  $('#suggestResults').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-use]');
+    if (b) useSuggestion(Number(b.dataset.use));
+  });
+  $('#stopList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-leg-from]');
+    if (b) openLeg(b.dataset.legFrom, b.dataset.legTo, b.dataset.legDate);
+  });
+
+  let estimating = false;
+  $('#estimateBtn').addEventListener('click', async () => {
+    if (estimating) return;
+    const stops = state.plan.stops;
+    if (stops.length < 2) { toast('Add at least two cities first'); return; }
+    const sched = schedule();
+    const todo = stops.slice(1).map((b, k) => ({ a: stops[k], b, date: sched ? sched.legs[k + 1].arrive : '' }))
+      .filter(({ a, b }) => !state.legInfo[legKey(a.city, b.city)]);
+    if (!todo.length) { toast('Every leg already has an estimate'); return; }
+    estimating = true;
+    const btn = $('#estimateBtn');
+    let done = 0;
+    for (const { a, b, date } of todo) {
+      btn.textContent = `Checking ${a.city} → ${b.city} (${++done}/${todo.length})…`;
+      try {
+        const ca = a.lat != null ? a : await coordsFor(a.city);
+        const cb = b.lat != null ? b : await coordsFor(b.city);
+        if (ca && cb) {
+          const r = await TrainSuggest.search(ca, cb, date);
+          state.legInfo[legKey(a.city, b.city)] = { ...(TrainSuggest.summary(r.options) || { count: 0 }), checked: r.searchedDate };
+          save();
+        }
+      } catch { /* skip this leg */ }
+      await sleep(1500);
+    }
+    btn.textContent = '🚆 Estimate train times for every leg';
+    estimating = false;
+    toast('Travel times estimated');
   });
 
   // ---------- packing ----------

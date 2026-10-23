@@ -7,7 +7,7 @@
   <meta name="description" content="Plan your Interrail trip: train journeys, stays and packing, saved to a file you own.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚆</text></svg>">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -105,6 +105,7 @@
           </form>
           <ol id="stopList" class="stop-list"></ol>
           <div id="planSummary" class="plan-summary muted"></div>
+          <button type="button" class="btn btn-ghost estimate-btn" id="estimateBtn">🚆 Estimate train times for every leg</button>
         </div>
         <div class="card map-card">
           <div id="map" class="map"></div>
@@ -153,6 +154,11 @@
   <footer class="footer">
     Your plan is stored in this browser. Use <strong>Export</strong> to save a file and <strong>Import</strong> to load it on any device.
     <button type="button" class="link-btn" id="resetBtn">Start a new plan</button>
+    <p class="credits">
+      Train times from <a href="https://transitous.org/sources/" target="_blank" rel="noopener">Transitous</a> ·
+      maps &amp; places © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ·
+      <a href="https://github.com/LonanRynnPring/interrail-helper" target="_blank" rel="noopener">source &amp; contact on GitHub</a>
+    </p>
   </footer>
 
   <!-- Journey dialog -->
@@ -161,7 +167,7 @@
       <h3 class="span-2" id="journeyDialogTitle">Add journey</h3>
       <label>From <input name="from" required placeholder="Amsterdam Centraal"></label>
       <label>To <input name="to" required placeholder="Berlin Hbf"></label>
-      <label>Date <input type="date" name="date" required></label>
+      <label>Date <span class="hint">optional</span><input type="date" name="date"></label>
       <label>Train / number <input name="train" placeholder="ICE 145"></label>
       <label>Departs <input type="time" name="dep"></label>
       <label>Arrives <input type="time" name="arr"></label>
@@ -178,6 +184,11 @@
       <label>Reservation cost <input type="number" min="0" step="0.01" name="resCost"></label>
       <label class="check span-2"><input type="checkbox" name="passDay"> Uses a pass travel day</label>
       <label class="span-2">Notes <textarea name="notes" rows="2" placeholder="Platform, change at…, booking ref"></textarea></label>
+      <div class="span-2 suggest">
+        <button type="button" class="btn" id="suggestBtn">🔍 Suggest trains</button>
+        <span class="muted hint">Only “From” and “To” are needed – no date? You’ll see a typical day.</span>
+        <div id="suggestResults"></div>
+      </div>
       <div class="dialog-actions span-2">
         <button type="button" class="btn btn-danger" id="deleteJourneyBtn">Delete</button>
         <span class="spacer"></span>
@@ -211,6 +222,7 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="app.js?v=3"></script>
+  <script src="trains.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

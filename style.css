@@ -330,3 +330,43 @@ dialog::backdrop { background: rgba(10, 14, 22, .45); }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 18px; font-size: .85rem; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 12px; height: 12px; border-radius: 3px; background: var(--stop-bg); display: inline-block; }
+
+/* Train suggestions */
+.hint { font-weight: 400; font-size: .75rem; color: var(--muted); }
+label .hint { margin-left: 4px; }
+.suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+#suggestResults { flex-basis: 100%; }
+.suggest-head { font-size: .85rem; margin: 8px 0; }
+.suggest-head.typical { background: var(--warn-soft); color: var(--text); border-radius: 8px; padding: 8px 10px; }
+.suggest-summary { font-size: .85rem; color: var(--muted); margin-bottom: 8px; }
+.options { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; padding-right: 2px; }
+.option {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+}
+.option.fastest { border-color: var(--ok); }
+.option .times { font-weight: 700; font-variant-numeric: tabular-nums; }
+.option .times sup { color: var(--warn); }
+.option .dur { font-weight: 400; color: var(--muted); font-size: .85rem; margin-left: 6px; }
+.option .via { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+.option .pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.option .pill { font-size: .7rem; padding: 2px 7px; }
+.option .btn { padding: 5px 12px; font-size: .82rem; }
+.pill.bad { background: transparent; color: var(--danger); border-color: var(--danger); }
+.suggest-note { font-size: .75rem; color: var(--muted); margin-top: 8px; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Planner leg rows */
+.stop-list li.leg-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  background: transparent; border: 0; border-left: 2px dashed var(--border);
+  margin-left: 22px; padding: 2px 0 2px 16px; font-size: .82rem; color: var(--muted);
+}
+.leg-row .leg-info { flex: 1; min-width: 0; }
+.leg-row .leg-info strong { color: var(--text); font-weight: 600; }
+.leg-row .leg-info .ok { color: var(--ok); font-weight: 600; }
+.leg-row .icon-btn { font-size: .8rem; color: var(--accent); }
+.estimate-btn { margin-top: 12px; width: 100%; }
+.credits { margin: 8px 0 0; font-size: .78rem; }
+.credits a { color: var(--muted); }
