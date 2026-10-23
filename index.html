@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interrail Helper</title>
+  <meta name="description" content="Plan your Interrail trip: train journeys, stays and packing, saved to a file you own.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚆</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🚆</span>
+      <div>
+        <h1 id="tripTitle">Interrail Helper</h1>
+        <p class="subtitle" id="tripSubtitle">Plan your trip, save it to a file</p>
+      </div>
+    </div>
+    <div class="file-actions">
+      <span class="save-status" id="saveStatus" title="Your plan is also kept in this browser between visits"></span>
+      <button type="button" class="btn" id="importBtn">⬆ Import</button>
+      <button type="button" class="btn btn-primary" id="exportBtn">⬇ Export</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab" data-tab="overview">Overview</button>
+    <button role="tab" class="tab" data-tab="trains">Train Journeys</button>
+    <button role="tab" class="tab" data-tab="stays">Stays</button>
+    <button role="tab" class="tab" data-tab="packing">Packing</button>
+  </nav>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section class="panel" id="panel-overview" role="tabpanel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Trip details</h2>
+          <form id="tripForm" class="form-grid">
+            <label class="span-2">Trip name
+              <input name="name" placeholder="e.g. Summer around Europe">
+            </label>
+            <label>Start date <input type="date" name="startDate"></label>
+            <label>End date <input type="date" name="endDate"></label>
+            <label>Travellers <input type="number" min="1" name="travellers"></label>
+            <label>Currency <input name="currency" maxlength="3" placeholder="EUR"></label>
+            <label>Pass type
+              <select name="passType">
+                <option value="">— choose —</option>
+                <option>Global Pass – 4 days in 1 month</option>
+                <option>Global Pass – 5 days in 1 month</option>
+                <option>Global Pass – 7 days in 1 month</option>
+                <option>Global Pass – 10 days in 2 months</option>
+                <option>Global Pass – 15 days in 2 months</option>
+                <option>Global Pass – 15 days continuous</option>
+                <option>Global Pass – 22 days continuous</option>
+                <option>Global Pass – 1 month continuous</option>
+                <option>Global Pass – 2 months continuous</option>
+                <option>Global Pass – 3 months continuous</option>
+                <option>One Country Pass</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label>Travel days on pass <input type="number" min="0" name="travelDaysAllowed" placeholder="e.g. 7"></label>
+            <label>Pass cost <input type="number" min="0" step="0.01" name="passCost"></label>
+            <label class="span-2">Notes
+              <textarea name="notes" rows="3" placeholder="Anything to remember…"></textarea>
+            </label>
+          </form>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h2>At a glance</h2>
+            <div class="stats" id="overviewStats"></div>
+          </div>
+          <div class="card">
+            <h2>Route</h2>
+            <div id="routeLine" class="route-line"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRAINS -->
+    <section class="panel" id="panel-trains" role="tabpanel">
+      <div class="panel-head">
+        <h2>Train journeys</h2>
+        <button type="button" class="btn btn-primary" id="addJourneyBtn">+ Add journey</button>
+      </div>
+      <div class="stats" id="trainStats"></div>
+      <div id="journeyList" class="journey-list"></div>
+    </section>
+
+    <!-- STAYS -->
+    <section class="panel" id="panel-stays" role="tabpanel">
+      <div class="panel-head">
+        <h2>Stays</h2>
+        <button type="button" class="btn btn-primary" id="addStayBtn">+ Add stay</button>
+      </div>
+      <div id="stayList" class="stay-list"></div>
+    </section>
+
+    <!-- PACKING -->
+    <section class="panel" id="panel-packing" role="tabpanel">
+      <div class="panel-head">
+        <h2>Packing list</h2>
+        <span class="muted" id="packingCount"></span>
+      </div>
+      <form id="packingForm" class="inline-form">
+        <input name="text" placeholder="Add an item, e.g. Passport" required>
+        <button class="btn btn-primary">Add</button>
+      </form>
+      <ul id="packingList" class="packing-list"></ul>
+      <button type="button" class="btn btn-ghost" id="packingDefaultsBtn">Add common Interrail items</button>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Your plan is stored in this browser. Use <strong>Export</strong> to save a file and <strong>Import</strong> to load it on any device.
+    <button type="button" class="link-btn" id="resetBtn">Start a new plan</button>
+  </footer>
+
+  <!-- Journey dialog -->
+  <dialog id="journeyDialog">
+    <form method="dialog" id="journeyForm" class="form-grid">
+      <h3 class="span-2" id="journeyDialogTitle">Add journey</h3>
+      <label>From <input name="from" required placeholder="Amsterdam Centraal"></label>
+      <label>To <input name="to" required placeholder="Berlin Hbf"></label>
+      <label>Date <input type="date" name="date" required></label>
+      <label>Train / number <input name="train" placeholder="ICE 145"></label>
+      <label>Departs <input type="time" name="dep"></label>
+      <label>Arrives <input type="time" name="arr"></label>
+      <label>Operator <input name="operator" placeholder="DB, SNCF, Trenitalia…"></label>
+      <label>Seat / coach <input name="seat" placeholder="Coach 7, seat 42"></label>
+      <label>Seat reservation
+        <select name="resStatus">
+          <option value="none">Not needed</option>
+          <option value="todo">Required – not booked yet</option>
+          <option value="optional">Optional – not booked</option>
+          <option value="booked">Booked</option>
+        </select>
+      </label>
+      <label>Reservation cost <input type="number" min="0" step="0.01" name="resCost"></label>
+      <label class="check span-2"><input type="checkbox" name="passDay"> Uses a pass travel day</label>
+      <label class="span-2">Notes <textarea name="notes" rows="2" placeholder="Platform, change at…, booking ref"></textarea></label>
+      <div class="dialog-actions span-2">
+        <button type="button" class="btn btn-danger" id="deleteJourneyBtn">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" value="cancel" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Stay dialog -->
+  <dialog id="stayDialog">
+    <form method="dialog" id="stayForm" class="form-grid">
+      <h3 class="span-2" id="stayDialogTitle">Add stay</h3>
+      <label>City <input name="city" required placeholder="Prague"></label>
+      <label>Place <input name="name" placeholder="Hostel name"></label>
+      <label>Check in <input type="date" name="checkIn"></label>
+      <label>Check out <input type="date" name="checkOut"></label>
+      <label>Total cost <input type="number" min="0" step="0.01" name="cost"></label>
+      <label class="check"><input type="checkbox" name="booked"> Booked</label>
+      <label class="span-2">Address <input name="address"></label>
+      <label class="span-2">Notes <textarea name="notes" rows="2" placeholder="Booking ref, check-in time…"></textarea></label>
+      <div class="dialog-actions span-2">
+        <button type="button" class="btn btn-danger" id="deleteStayBtn">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
