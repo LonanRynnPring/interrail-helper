@@ -325,7 +325,7 @@ dialog::backdrop { background: rgba(10, 14, 22, .45); }
 .cal .day.in { background: var(--cell); color: var(--text); }
 .cal .day.travel { background: linear-gradient(135deg, var(--cell) 50%, var(--cell2) 50%); color: var(--text); }
 .cal .day .n { font-weight: 700; font-size: .8rem; display: block; margin-bottom: 2px; }
-.cal .day .c { display: block; overflow-wrap: anywhere; }
+.cal .day .c { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal .day.travel .n::after { content: " 🚆"; font-size: .7rem; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 18px; font-size: .85rem; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
