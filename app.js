@@ -25,7 +25,7 @@
     packing: [],
   });
 
-  let state = load();
+  let state; // loaded in init, once all helpers exist
 
   // ---------- helpers ----------
   const $ = (sel) => document.querySelector(sel);
@@ -93,10 +93,14 @@
   }
 
   function load() {
+    let raw = null;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      raw = localStorage.getItem(STORAGE_KEY);
       return raw ? normalise(JSON.parse(raw)) : emptyState();
-    } catch {
+    } catch (err) {
+      console.error('Could not load saved plan', err);
+      // Keep the unreadable data so it isn't lost when the empty plan gets saved over it.
+      try { if (raw) localStorage.setItem(`${STORAGE_KEY}-backup-${Date.now()}`, raw); } catch { /* ignore */ }
       return emptyState();
     }
   }
@@ -888,6 +892,7 @@
   });
 
   // ---------- init ----------
+  state = load();
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
   const tabs = ['overview', 'planner', 'trains', 'stays', 'packing'];
   let initial = location.hash.slice(1);
