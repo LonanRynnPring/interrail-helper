@@ -107,7 +107,12 @@
     let options = [...seen.values()].filter((o) => localDay(o.dep, o.depTz) === date);
     if (options.length) {
       const fastest = Math.min(...options.map((o) => o.mins));
-      options = options.filter((o) => o.mins <= Math.max(fastest * 1.8, fastest + 180));
+      const fewestChanges = Math.min(...options.map((o) => o.changes));
+      options = options.filter((o) => o.mins <= Math.max(fastest * 1.8, fastest + 180) && o.changes <= fewestChanges + 2);
+      // Drop options another one beats outright: leaves no earlier, arrives no later, no more changes.
+      options = options.filter((o) => !options.some((p) => p !== o
+        && p.dep >= o.dep && p.arr <= o.arr && p.changes <= o.changes
+        && (p.dep > o.dep || p.arr < o.arr || p.changes < o.changes)));
     }
     options.sort((a, b) => a.dep.localeCompare(b.dep));
     cache.set(url, options);
