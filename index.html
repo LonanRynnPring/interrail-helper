@@ -6,6 +6,7 @@
   <title>Interrail Helper</title>
   <meta name="description" content="Plan your Interrail trip: train journeys, stays and packing, saved to a file you own.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚆</text></svg>">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -27,6 +28,7 @@
 
   <nav class="tabs" role="tablist">
     <button role="tab" class="tab" data-tab="overview">Overview</button>
+    <button role="tab" class="tab" data-tab="planner">Planner</button>
     <button role="tab" class="tab" data-tab="trains">Train Journeys</button>
     <button role="tab" class="tab" data-tab="stays">Stays</button>
     <button role="tab" class="tab" data-tab="packing">Packing</button>
@@ -80,6 +82,37 @@
             <div id="routeLine" class="route-line"></div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- PLANNER -->
+    <section class="panel" id="panel-planner" role="tabpanel">
+      <div class="panel-head">
+        <h2>Route planner</h2>
+        <div class="file-actions">
+          <button type="button" class="btn" id="applyDatesBtn">Use as trip dates</button>
+          <button type="button" class="btn btn-primary" id="makeJourneysBtn">Create train journeys</button>
+        </div>
+      </div>
+      <div class="grid-2 planner-grid">
+        <div class="card">
+          <label class="start-date">Start date <input type="date" id="planStart"></label>
+          <form id="stopForm" class="stop-form">
+            <input name="city" placeholder="City, e.g. Prague" required>
+            <input name="country" placeholder="Country (optional)">
+            <input name="days" type="number" min="1" value="2" required aria-label="Days" title="Days (nights) to stay">
+            <button class="btn btn-primary">Add</button>
+          </form>
+          <ol id="stopList" class="stop-list"></ol>
+          <div id="planSummary" class="plan-summary muted"></div>
+        </div>
+        <div class="card map-card">
+          <div id="map" class="map"></div>
+        </div>
+      </div>
+      <div class="card calendar-card">
+        <h2>Calendar</h2>
+        <div id="calendar"></div>
       </div>
     </section>
 
@@ -177,6 +210,7 @@
 
   <div id="toast" class="toast" role="status"></div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

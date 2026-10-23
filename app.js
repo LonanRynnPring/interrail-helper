@@ -17,6 +17,7 @@
       name: '', startDate: '', endDate: '', travellers: 1, currency: 'EUR',
       passType: '', travelDaysAllowed: '', passCost: '', notes: '',
     },
+    plan: { startDate: '', stops: [] },
     journeys: [],
     stays: [],
     packing: [],
@@ -75,6 +76,12 @@
     if (!data || typeof data !== 'object') return base;
     return {
       trip: { ...base.trip, ...(data.trip || {}) },
+      plan: {
+        startDate: (data.plan && data.plan.startDate) || '',
+        stops: data.plan && Array.isArray(data.plan.stops)
+          ? data.plan.stops.map((s) => ({ id: uid(), days: 1, ...s, geo: s.geo === 'pending' ? undefined : s.geo }))
+          : [],
+      },
       journeys: Array.isArray(data.journeys) ? data.journeys.map((j) => ({ id: uid(), ...j })) : [],
       stays: Array.isArray(data.stays) ? data.stays.map((s) => ({ id: uid(), ...s })) : [],
       packing: Array.isArray(data.packing) ? data.packing.map((p) => ({ id: uid(), done: false, ...p })) : [],
@@ -134,6 +141,7 @@
       state = normalise(data);
       save();
       fillTripForm();
+      geocodeMissing();
       toast(`Imported “${state.trip.name || file.name}”`);
     };
     reader.readAsText(file);
@@ -145,6 +153,7 @@
     document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.id === `panel-${name}`));
     try { localStorage.setItem(STORAGE_KEY + '-tab', name); } catch { /* ignore */ }
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+    if (name === 'planner') renderMap();
   }
 
   // ---------- derived ----------
@@ -159,6 +168,7 @@
   function render() {
     renderHeader();
     renderOverview();
+    renderPlanner();
     renderTrains();
     renderStays();
     renderPacking();
@@ -315,6 +325,245 @@
       </li>`).join('');
   }
 
+  // ---------- planner ----------
+  const hue = (i) => Math.round((i * 137.508 + 210) % 360);
+
+  function addDays(iso, n) {
+    const d = new Date(iso + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // Each stop: arrive on `arrive`, leave on `depart` (= next stop's arrival, a travel day).
+  function schedule() {
+    const { startDate, stops } = state.plan;
+    if (!startDate) return null;
+    let offset = 0;
+    const legs = stops.map((s, i) => {
+      const days = Math.max(1, Math.round(num(s.days)) || 1);
+      const leg = { stop: s, index: i, arrive: addDays(startDate, offset), depart: addDays(startDate, offset + days), days };
+      offset += days;
+      return leg;
+    });
+    return { legs, start: startDate, end: addDays(startDate, offset), total: offset };
+  }
+
+  function stopLabel(s) {
+    return s.country ? `${s.city}, ${s.country}` : s.city;
+  }
+
+  function renderPlanner() {
+    const sched = schedule();
+    const stops = state.plan.stops;
+    $('#planStart').value = state.plan.startDate || '';
+
+    $('#stopList').innerHTML = stops.map((s, i) => {
+      const leg = sched && sched.legs[i];
+      const where = s.geo === 'missing' ? '<span class="sub warn">Location not found – not shown on map</span>'
+        : s.geo === 'error' ? '<span class="sub warn">Couldn’t look up location</span>'
+        : s.lat == null ? '<span class="sub">Finding on map…</span>' : '';
+      const dates = leg ? `<span class="sub">${esc(fmtDate(leg.arrive))} → ${esc(fmtDate(leg.depart))}</span>` : '';
+      return `<li style="--h:${hue(i)}">
+        <span class="stop-num">${i + 1}</span>
+        <div class="stop-name"><div class="city">${esc(stopLabel(s))}</div>${dates}${dates && where ? '<br>' : ''}${where}</div>
+        <input type="number" min="1" value="${esc(s.days)}" data-stop-days="${esc(s.id)}" aria-label="Days in ${esc(s.city)}" title="Days (nights)">
+        <div class="stop-btns">
+          <button type="button" class="icon-btn" data-stop-move="-1" data-id="${esc(s.id)}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
+          <button type="button" class="icon-btn" data-stop-move="1" data-id="${esc(s.id)}" ${i === stops.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
+          <button type="button" class="icon-btn" data-stop-remove="${esc(s.id)}" aria-label="Remove">×</button>
+        </div>
+      </li>`;
+    }).join('') || '<li class="muted" style="display:block">Add the cities you want to visit, in order.</li>';
+
+    if (!stops.length) $('#planSummary').textContent = '';
+    else if (!sched) $('#planSummary').innerHTML = `<strong>${stops.length}</strong> stops · pick a start date to build your calendar.`;
+    else $('#planSummary').innerHTML = `<strong>${stops.length}</strong> stops · <strong>${sched.total}</strong> nights · ${esc(fmtDate(sched.start))} → <strong>${esc(fmtDate(sched.end))}</strong> · <strong>${Math.max(0, stops.length - 1)}</strong> train travel days between cities`;
+
+    renderCalendar(sched);
+    if ($('#panel-planner').classList.contains('active')) renderMap();
+  }
+
+  function renderCalendar(sched) {
+    const el = $('#calendar');
+    if (!sched || !sched.legs.length) {
+      el.innerHTML = `<div class="empty"><div class="big">📅</div><p>Add a start date and some cities to see your calendar.</p></div>`;
+      return;
+    }
+    const byDate = new Map();
+    sched.legs.forEach((leg) => {
+      for (let d = leg.arrive; d < leg.depart; d = addDays(d, 1)) byDate.set(d, { leg });
+    });
+    // Travel days: arrival day of every stop after the first
+    sched.legs.slice(1).forEach((leg) => byDate.set(leg.arrive, { leg, from: sched.legs[leg.index - 1] }));
+    const last = sched.legs[sched.legs.length - 1];
+    byDate.set(sched.end, { leg: last, leaving: true });
+
+    const months = [];
+    let cursor = sched.start.slice(0, 7) + '-01';
+    const endMonth = sched.end.slice(0, 7);
+    while (cursor.slice(0, 7) <= endMonth) {
+      months.push(cursor);
+      const d = new Date(cursor + 'T00:00:00Z');
+      d.setUTCMonth(d.getUTCMonth() + 1);
+      cursor = d.toISOString().slice(0, 10);
+    }
+
+    const dows = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const html = months.map((m) => {
+      const first = new Date(m + 'T00:00:00Z');
+      const lead = (first.getUTCDay() + 6) % 7;
+      const daysInMonth = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+      let cells = dows.map((d) => `<div class="dow">${d}</div>`).join('');
+      cells += '<div class="day blank"></div>'.repeat(lead);
+      for (let n = 1; n <= daysInMonth; n++) {
+        const iso = m.slice(0, 8) + String(n).padStart(2, '0');
+        const info = byDate.get(iso);
+        if (!info) { cells += `<div class="day"><span class="n">${n}</span></div>`; continue; }
+        const h = hue(info.leg.index);
+        if (info.from) {
+          const title = `${info.from.stop.city} → ${info.leg.stop.city}`;
+          cells += `<div class="day travel" style="--h:${hue(info.from.index)};--h2:${h}" title="${esc(title)}"><span class="n">${n}</span><span class="c">→ ${esc(info.leg.stop.city)}</span></div>`;
+        } else if (info.leaving) {
+          cells += `<div class="day travel" style="--h:${h};--h2:${h}" title="Leave ${esc(info.leg.stop.city)}"><span class="n">${n}</span><span class="c">Leave ${esc(info.leg.stop.city)}</span></div>`;
+        } else {
+          cells += `<div class="day in" style="--h:${h}" title="${esc(stopLabel(info.leg.stop))}"><span class="n">${n}</span><span class="c">${esc(info.leg.stop.city)}</span></div>`;
+        }
+      }
+      const name = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+      return `<div class="month"><h3>${esc(name)}</h3><div class="cal">${cells}</div></div>`;
+    }).join('');
+
+    const legend = sched.legs.map((l) =>
+      `<span style="--h:${hue(l.index)}"><i></i>${esc(l.stop.city)} · ${esc(fmtDate(l.arrive, { day: 'numeric', month: 'short' }))}–${esc(fmtDate(l.depart, { day: 'numeric', month: 'short' }))} (${l.days} night${l.days > 1 ? 's' : ''})</span>`
+    ).join('');
+    el.innerHTML = `<div class="months">${html}</div><div class="legend">${legend}</div>`;
+  }
+
+  // Map (Leaflet + OpenStreetMap)
+  let map = null;
+  let mapLayer = null;
+  function renderMap() {
+    if (typeof L === 'undefined') {
+      $('#map').innerHTML = '<div class="empty" style="margin:16px">Map couldn’t load – check your connection.</div>';
+      return;
+    }
+    if (!map) {
+      map = L.map('map', { scrollWheelZoom: false }).setView([50, 10], 4);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
+      mapLayer = L.layerGroup().addTo(map);
+    }
+    map.invalidateSize();
+    mapLayer.clearLayers();
+    const sched = schedule();
+    const pts = [];
+    state.plan.stops.forEach((s, i) => {
+      if (s.lat == null || s.lon == null) return;
+      const ll = [s.lat, s.lon];
+      pts.push(ll);
+      const leg = sched && sched.legs[i];
+      const icon = L.divIcon({ className: '', html: `<div class="map-pin" style="--h:${hue(i)}">${i + 1}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+      L.marker(ll, { icon, title: s.city })
+        .bindPopup(`<strong>${esc(stopLabel(s))}</strong><br>${s.days} night${s.days > 1 ? 's' : ''}${leg ? `<br>${esc(fmtDate(leg.arrive))} → ${esc(fmtDate(leg.depart))}` : ''}`)
+        .addTo(mapLayer);
+    });
+    if (pts.length > 1) L.polyline(pts, { color: '#1f4e8c', weight: 3, dashArray: '6 6', opacity: .8 }).addTo(mapLayer);
+    if (pts.length === 1) map.setView(pts[0], 6);
+    else if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40] });
+  }
+
+  // Geocoding via OpenStreetMap Nominatim (max 1 request/second)
+  let geoQueue = Promise.resolve();
+  const pendingGeo = new Set();
+  function geocode(stopId) {
+    if (pendingGeo.has(stopId)) return;
+    pendingGeo.add(stopId);
+    geoQueue = geoQueue.then(async () => {
+      const s = state.plan.stops.find((x) => x.id === stopId);
+      if (!s) { pendingGeo.delete(stopId); return; }
+      try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&featureType=settlement&q=' + encodeURIComponent(stopLabel(s));
+        const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+        const data = await res.json();
+        if (data[0]) { s.lat = +data[0].lat; s.lon = +data[0].lon; s.geo = 'ok'; } else s.geo = 'missing';
+      } catch {
+        s.geo = 'error';
+      }
+      pendingGeo.delete(stopId);
+      save();
+      await new Promise((r) => setTimeout(r, 1100));
+    });
+  }
+  function geocodeMissing() {
+    state.plan.stops.filter((s) => s.lat == null && s.geo !== 'missing').forEach((s) => geocode(s.id));
+  }
+
+  $('#planStart').addEventListener('change', (e) => { state.plan.startDate = e.target.value; save(); });
+
+  $('#stopForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const city = f.city.value.trim();
+    if (!city) return;
+    const stop = { id: uid(), city, country: f.country.value.trim(), days: Math.max(1, Math.round(num(f.days.value)) || 1) };
+    state.plan.stops.push(stop);
+    if (!state.plan.startDate && state.trip.startDate) state.plan.startDate = state.trip.startDate;
+    f.city.value = '';
+    f.city.focus();
+    save();
+    geocode(stop.id);
+  });
+
+  $('#stopList').addEventListener('change', (e) => {
+    const id = e.target.dataset.stopDays;
+    const s = state.plan.stops.find((x) => x.id === id);
+    if (s) { s.days = Math.max(1, Math.round(num(e.target.value)) || 1); save(); }
+  });
+
+  $('#stopList').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const stops = state.plan.stops;
+    if (btn.dataset.stopRemove) {
+      state.plan.stops = stops.filter((s) => s.id !== btn.dataset.stopRemove);
+      save();
+    } else if (btn.dataset.stopMove) {
+      const i = stops.findIndex((s) => s.id === btn.dataset.id);
+      const j = i + Number(btn.dataset.stopMove);
+      if (i < 0 || j < 0 || j >= stops.length) return;
+      [stops[i], stops[j]] = [stops[j], stops[i]];
+      save();
+    }
+  });
+
+  $('#applyDatesBtn').addEventListener('click', () => {
+    const sched = schedule();
+    if (!sched || !sched.legs.length) { toast('Add a start date and at least one city first'); return; }
+    state.trip.startDate = sched.start;
+    state.trip.endDate = sched.end;
+    fillTripForm();
+    save();
+    toast(`Trip dates set to ${fmtDate(sched.start)} – ${fmtDate(sched.end)}`);
+  });
+
+  $('#makeJourneysBtn').addEventListener('click', () => {
+    const sched = schedule();
+    if (!sched || sched.legs.length < 2) { toast('Add a start date and at least two cities first'); return; }
+    const key = (j) => `${(j.from || '').toLowerCase()}|${(j.to || '').toLowerCase()}|${j.date}`;
+    const have = new Set(state.journeys.map(key));
+    let added = 0;
+    sched.legs.slice(1).forEach((leg) => {
+      const j = { id: uid(), from: sched.legs[leg.index - 1].stop.city, to: leg.stop.city, date: leg.arrive, passDay: true, resStatus: 'none' };
+      if (have.has(key(j))) return;
+      state.journeys.push(j);
+      added++;
+    });
+    save();
+    toast(added ? `Added ${added} journey${added > 1 ? 's' : ''} to Train Journeys` : 'Those journeys are already in Train Journeys');
+  });
+
   // ---------- trip form ----------
   function fillTripForm() {
     const f = $('#tripForm');
@@ -459,7 +708,7 @@
 
   // ---------- init ----------
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
-  const tabs = ['overview', 'trains', 'stays', 'packing'];
+  const tabs = ['overview', 'planner', 'trains', 'stays', 'packing'];
   let initial = location.hash.slice(1);
   if (!tabs.includes(initial)) {
     try { initial = localStorage.getItem(STORAGE_KEY + '-tab'); } catch { initial = null; }
@@ -467,4 +716,5 @@
   showTab(tabs.includes(initial) ? initial : 'trains');
   fillTripForm();
   render();
+  geocodeMissing();
 })();
